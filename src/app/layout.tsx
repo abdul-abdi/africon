@@ -15,6 +15,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Africon - African Voice Assistant",
   description: "AI voice assistant for African languages, history, and culture",
+  icons: {
+    icon: "/africon-favicon.ico",
+    shortcut: "/africon-favicon.ico",
+  },
 };
 
 export default function RootLayout({
