@@ -58,7 +58,6 @@ export default function VoiceMode({
   // Handle speech recognition results
   useEffect(() => {
     // Hook into the window.SpeechRecognition event
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleSpeechResult = (event: any) => {
       if (event?.detail?.results && event.detail.results[0]?.[0]?.transcript) {
         const text = event.detail.results[0][0].transcript;
@@ -74,6 +73,29 @@ export default function VoiceMode({
     
     return () => {
       window.removeEventListener('speechrecognitionresult', handleSpeechResult);
+    };
+  }, []);
+  
+  // Add a listener for speech iframe messages to ensure speech status is shown correctly
+  useEffect(() => {
+    // Listen for speech messages from iframe or other sources
+    const handleSpeechMessage = (event: MessageEvent) => {
+      if (typeof event.data === 'string') {
+        if (event.data === 'speech-started') {
+          console.log("🔊 Speech started - VoiceMode updated");
+          // Just for debugging, no action needed as isSpeaking should be set in parent component
+        } else if (event.data === 'speech-ended') {
+          console.log("🔊 Speech ended - VoiceMode updated");
+          // Just for debugging, no action needed as isSpeaking should be set in parent component
+        }
+      }
+    };
+    
+    // Add listener for cross-frame communication
+    window.addEventListener('message', handleSpeechMessage);
+    
+    return () => {
+      window.removeEventListener('message', handleSpeechMessage);
     };
   }, []);
   

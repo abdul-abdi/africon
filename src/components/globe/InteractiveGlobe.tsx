@@ -37,8 +37,7 @@ export default function InteractiveGlobe({
   onSpeechEnd,
   isSpeaking 
 }: InteractiveGlobeProps) {
-  // Use 'any' type with ESLint disable to maintain compatibility with react-globe.gl
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Use 'any' type for react-globe.gl compatibility
   const globeRef = useRef<any>(null);
   const [globeReady, setGlobeReady] = useState(false);
   const [globeRadius, setGlobeRadius] = useState(200);
@@ -192,19 +191,6 @@ export default function InteractiveGlobe({
       }
     };
   }, [isListening, animateGlobeAudio]);
-
-  // Visual elements for the globe
-  // We'll add an ESLint disable for these unused variables since they might be used in the future
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const geoJson = {
-    type: 'Feature',
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [[-180, -90], [-180, 90], [180, 90], [180, -90], [-180, -90]]
-      ]
-    }
-  };
 
   // Create points for visualization
   const generatePoints = () => {
