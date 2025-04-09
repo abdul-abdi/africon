@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import VoiceMode from "@/components/globe/VoiceMode";
 import { dispatchSpeechResult } from "@/lib/events";
 import FloatingAfricanArt from "@/components/background/FloatingAfricanArt";
@@ -112,7 +112,7 @@ export default function Home() {
   };
 
   // Enhanced function to speak text with better language detection
-  const speak = (text: string, languageCode?: string) => {
+  const speak = useCallback((text: string, languageCode?: string) => {
     if (!('speechSynthesis' in window)) {
       console.warn("🔊 Speech Synthesis not supported by this browser.");
       return;
@@ -129,10 +129,10 @@ export default function Home() {
       console.log(`🔊 Using language code: ${languageCode}`);
       sessionStorage.setItem(`speech-lang-${text.substring(0, 20)}`, languageCode);
     }
-  };
+  }, []);
 
   // Core speech processing logic - separated to avoid duplication
-  const processSpeechCore = (text: string) => {
+  const processSpeechCore = useCallback((text: string) => {
     setIsSpeechPlaying(true);
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -140,9 +140,18 @@ export default function Home() {
 
     // Check if we have a stored language code for this text
     const storedLangCode = sessionStorage.getItem(`speech-lang-${text.substring(0, 20)}`);
+    
+    console.log(`🔊 Processing speech with language code: ${storedLangCode || 'default'}`);
 
     // Improved language detection for African languages
     const voices = window.speechSynthesis.getVoices();
+    console.log(`🔊 Available voices: ${voices.length}`);
+    
+    // Debug voice list
+    if (voices.length > 0) {
+      console.log(`🔊 First few available voices: ${voices.slice(0, 3).map(v => `${v.name} (${v.lang})`).join(', ')}`);
+    }
+    
     let targetLangCode = storedLangCode || 'en'; // Use API-detected language or default to English
 
     // Language code mapping for better voice selection
@@ -160,6 +169,7 @@ export default function Home() {
       'tn': 'en-ZA', // Setswana - fallback to South African English
       'wo': 'fr-SN', // Wolof - fallback to Senegalese French
       'so': 'ar', // Somali - fallback to Arabic as it's phonetically closer
+      'ak': 'en-GH', // Akan/Twi - fallback to Ghana English
     };
     
     // Add support for more African languages
@@ -178,7 +188,9 @@ export default function Home() {
 
     // Map the language code if we have a better match
     if (mergedLangMap[targetLangCode]) {
-      targetLangCode = mergedLangMap[targetLangCode];
+      const mappedCode = mergedLangMap[targetLangCode];
+      console.log(`🔊 Mapping language code ${targetLangCode} to ${mappedCode}`);
+      targetLangCode = mappedCode;
     }
 
     // Only use pattern detection as fallback if we don't have language from API
@@ -192,7 +204,8 @@ export default function Home() {
         { code: 'zu', keywords: ['sawubona', 'unjani', 'yebo', 'ngiyabonga', 'hamba'] }, // Zulu
         { code: 'xh', keywords: ['molo', 'unjani', 'ewe', 'enkosi', 'sala'] }, // Xhosa
         { code: 'af', keywords: ['hallo', 'totsiens', 'dankie', 'asseblief', 'goeie'] },  // Afrikaans
-        { code: 'so', keywords: ['waa', 'aan', 'ku', 'ka', 'in', 'waxaan', 'maanta', 'wax', 'qof', 'ma'] } // Somali
+        { code: 'so', keywords: ['waa', 'aan', 'ku', 'ka', 'in', 'waxaan', 'maanta', 'wax', 'qof', 'ma'] }, // Somali
+        { code: 'ak', keywords: ['medaase', 'akwaaba', 'ɛte sɛn', 'wo ho te sɛn', 'meda', 'yɛfrɛ me', 'asante'] } // Akan/Twi
       ];
 
       const lowerText = text.toLowerCase();
@@ -200,35 +213,62 @@ export default function Home() {
       // Check for language patterns
       for (const lang of langPatterns) {
         if (lang.keywords.some(keyword => lowerText.includes(keyword))) {
-          targetLangCode = langCodeMap[lang.code] || lang.code;
+          const detectedCode = langCodeMap[lang.code] || lang.code;
+          console.log(`🔊 Detected language ${lang.code} based on keywords, using ${detectedCode}`);
+          targetLangCode = detectedCode;
           break;
         }
       }
     }
 
     // Improved voice selection
+    console.log(`🔊 Looking for voice with language: ${targetLangCode}`);
+    
     // Try to find exact language match first
     let targetVoice = voices.find(voice => voice.lang.toLowerCase() === targetLangCode.toLowerCase());
     
     // Try partial match if no exact match
     if (!targetVoice) {
       targetVoice = voices.find(voice => voice.lang.toLowerCase().startsWith(targetLangCode.toLowerCase().split('-')[0]));
+      if (targetVoice) {
+        console.log(`🔊 Found voice with partial match: ${targetVoice.name} (${targetVoice.lang})`);
+      }
     }
 
     // If no match found for specific African language, try to find a voice with similar accent
     if (!targetVoice && targetLangCode !== 'en') {
+      console.log(`🔊 No direct match found for ${targetLangCode}, looking for fallbacks`);
+      
       // Look for English voices that might have African accents
       const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
+      
+      // Log available English voices to help with debugging
+      if (englishVoices.length > 0) {
+        console.log(`🔊 Available English voices: ${englishVoices.slice(0, 3).map(v => v.name).join(', ')}${englishVoices.length > 3 ? '...' : ''}`);
+      }
+      
       // This is a fallback strategy - browser voice support for African languages is limited
       targetVoice = englishVoices.find(voice => voice.name.toLowerCase().includes('africa')) || 
                     englishVoices.find(voice => voice.name.toLowerCase().includes('nigeria')) ||
                     englishVoices.find(voice => voice.name.toLowerCase().includes('kenya')) ||
+                    englishVoices.find(voice => voice.name.toLowerCase().includes('ghana')) ||
                     englishVoices[0];
+                    
+      if (targetVoice) {
+        console.log(`🔊 Using fallback voice: ${targetVoice.name} (${targetVoice.lang})`);
+      }
+    }
+
+    // Final voice selection with fallback to any available voice
+    if (!targetVoice && voices.length > 0) {
+      console.log(`🔊 No suitable voice found, using first available voice as last resort`);
+      targetVoice = voices[0];
     }
 
     if (targetVoice) {
       utterance.voice = targetVoice;
       utterance.lang = targetVoice.lang;
+      console.log(`🔊 Selected voice: ${targetVoice.name} (${targetVoice.lang})`);
     } else {
       // If we can't find a specific voice, at least set the lang attribute
       utterance.lang = targetLangCode.split('-')[0]; // Use the base language code
@@ -240,31 +280,20 @@ export default function Home() {
     utterance.pitch = 1.0; // Normal pitch
     utterance.volume = 1.0; // Maximum volume
 
+    // Store these variables for error handler access
+    const currentVoices = window.speechSynthesis.getVoices();
+    const currentLangCode = utterance.lang?.split('-')[0] || 'en';
+
     // Add event handlers
     utterance.onstart = () => {
       // Visual indicator that speech is happening
+      console.log(`🔊 Speech started with voice: ${utterance.voice?.name || 'default'}`);
       setIsSpeaking(true);
     };
 
     utterance.onend = () => {
       // Speech finished - ready for next interaction
-      setIsSpeaking(false);
-      setIsSpeechPlaying(false);
-      speechSynthesisRef.current = null;
-
-      // Remove the stored language code
-      sessionStorage.removeItem(`speech-lang-${text.substring(0, 20)}`);
-    };
-
-    utterance.onerror = (event) => {
-      // Improved error handling
-      if (event.error === 'interrupted') {
-        console.warn("Speech synthesis was interrupted. This is normal when changing utterances.");
-      } else {
-        console.error("Speech synthesis error:", event.error);
-      }
-
-      // Make sure we clean up properly even on error
+      console.log(`🔊 Speech ended successfully`);
       setIsSpeaking(false);
       setIsSpeechPlaying(false);
       speechSynthesisRef.current = null;
@@ -272,18 +301,164 @@ export default function Home() {
       // Remove the stored language code
       sessionStorage.removeItem(`speech-lang-${text.substring(0, 20)}`);
       
-      // Try next item in queue
+      // Process next item in queue
       if (speechQueue.length > 0) {
         setTimeout(() => {
           setSpeechQueue(prev => prev.slice(1));
-        }, 500);
+        }, 200);
+      }
+    };
+
+    utterance.onerror = (event: { error?: string }) => {
+      // Improved error handling with better recovery
+      console.warn(`Speech synthesis error: ${event.error || 'unknown'}`);
+      
+      // Track whether we've handled the error
+      let errorHandled = false;
+      
+      // Special handling for different error types
+      try {
+        if (event.error === 'interrupted') {
+          console.log("Speech was interrupted - normal during navigation");
+          errorHandled = true;
+        } else if (event.error === 'canceled') {
+          console.log("Speech was canceled - attempting recovery");
+          
+          // Try to resume if in paused state
+          if (window.speechSynthesis.paused) {
+            try {
+              window.speechSynthesis.resume();
+              console.log("Resumed speech synthesis after cancelation");
+            } catch (e) {
+              console.warn("Failed to resume after cancelation:", e);
+            }
+          }
+          
+          // For African languages, try to resynthesize with English as a fallback
+          if (currentLangCode !== 'en' && currentLangCode !== 'en-US') {
+            console.log(`🔊 Attempting to resynthesize with English as fallback`);
+            
+            // Create a new utterance with the same text but English voice
+            const fallbackUtterance = new SpeechSynthesisUtterance(text);
+            
+            // Find a good English voice
+            const englishVoice = currentVoices.find(v => v.lang === 'en-US' || v.lang === 'en-GB');
+            if (englishVoice) {
+              fallbackUtterance.voice = englishVoice;
+              fallbackUtterance.lang = englishVoice.lang;
+              
+              // Attempt to speak with the English voice
+              setTimeout(() => {
+                try {
+                  window.speechSynthesis.speak(fallbackUtterance);
+                  console.log(`🔊 Retrying with English voice: ${englishVoice.name}`);
+                } catch (e) {
+                  console.warn("Failed to speak with fallback English voice:", e);
+                  
+                  // If even that fails, move to next item in queue
+                  if (speechQueue.length > 0) {
+                    setTimeout(() => {
+                      setSpeechQueue(prev => prev.slice(1));
+                    }, 100);
+                  }
+                }
+              }, 100);
+              
+              // Mark as handled
+              errorHandled = true;
+              return;
+            }
+          }
+          
+          // Proceed to next item rather than retrying current one
+          if (speechQueue.length > 0) {
+            setTimeout(() => {
+              console.log("Moving to next speech queue item after cancelation");
+              setSpeechQueue(prev => prev.slice(1));
+            }, 100);
+          }
+          
+          // Clean up current speech item
+          setIsSpeaking(false);
+          setIsSpeechPlaying(false);
+          speechSynthesisRef.current = null;
+          
+          // Remove stored language code
+          sessionStorage.removeItem(`speech-lang-${text.substring(0, 20)}`);
+          
+          // Mark as handled so we don't do cleanup twice
+          errorHandled = true;
+        }
+      } catch (handlingError) {
+        console.error("Error while handling speech error:", handlingError);
+      }
+      
+      // Default cleanup if error wasn't specially handled
+      if (!errorHandled) {
+        console.error("Unhandled speech synthesis error:", event.error);
+        setIsSpeaking(false);
+        setIsSpeechPlaying(false);
+        speechSynthesisRef.current = null;
+        
+        // Remove the stored language code
+        sessionStorage.removeItem(`speech-lang-${text.substring(0, 20)}`);
+        
+        // Try next item in queue
+        if (speechQueue.length > 0) {
+          setTimeout(() => {
+            setSpeechQueue(prev => prev.slice(1));
+          }, 500);
+        }
       }
     };
 
     // Safety check to ensure browser is ready
     try {
-      // Speak the text
-      window.speechSynthesis.speak(utterance);
+      // Add Chrome bug fix: Force SpeechSynthesis to be in a clean state
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+        // Small delay to ensure cancel takes effect
+        setTimeout(() => {
+          // Test audio with a short beep to ensure audio is working
+          try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+              const audioCtx = new AudioContext();
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              
+              // Set very quiet beep just to test audio output
+              gainNode.gain.value = 0.01;
+              oscillator.frequency.value = 440;
+              oscillator.type = 'sine';
+              
+              oscillator.start();
+              setTimeout(() => {
+                oscillator.stop();
+                audioCtx.close();
+                
+                // Now proceed with speech
+                console.log(`🔊 Speaking text (${text.length} chars) after audio test`);
+                window.speechSynthesis.speak(utterance);
+              }, 50);
+            } else {
+              // No AudioContext, just try speaking directly
+              console.log(`🔊 Speaking directly, no audio test possible`);
+              window.speechSynthesis.speak(utterance);
+            }
+          } catch (audioError) {
+            console.warn("Audio test failed, speaking directly:", audioError);
+            window.speechSynthesis.speak(utterance);
+          }
+        }, 50);
+      } else {
+        // Speak the text directly if speech synthesis is idle
+        console.log(`🔊 Speaking text directly (${text.length} chars)`);
+        window.speechSynthesis.speak(utterance);
+      }
       
       // Chrome bug workaround: if speech doesn't start in 3 seconds, reset
       const speechTimeout = setTimeout(() => {
@@ -291,6 +466,20 @@ export default function Home() {
             !window.speechSynthesis.speaking && 
             !window.speechSynthesis.pending) {
           console.warn("Speech synthesis appears stuck - resetting");
+          
+          // Try forcing the utterance to speak again
+          try {
+            window.speechSynthesis.cancel();
+            setTimeout(() => {
+              window.speechSynthesis.speak(utterance);
+              console.log("Retried speaking after timeout");
+            }, 50);
+            return;
+          } catch (retryError) {
+            console.warn("Failed to retry speech after timeout:", retryError);
+          }
+          
+          // If retry fails, clean up
           setIsSpeaking(false);
           setIsSpeechPlaying(false);
           speechSynthesisRef.current = null;
@@ -306,16 +495,33 @@ export default function Home() {
       utterance.onstart = () => {
         clearTimeout(speechTimeout);
         setIsSpeaking(true);
+        console.log(`🔊 Speech started successfully`);
       };
       
       const originalOnEnd = utterance.onend;
       utterance.onend = (event) => {
         clearTimeout(speechTimeout);
+        console.log(`🔊 Speech ended event fired`);
         if (originalOnEnd) originalOnEnd.call(utterance, event);
       };
       
     } catch (error) {
       console.error("Error trying to speak:", error);
+      
+      // Try one more approach - create a completely new utterance and try again
+      try {
+        console.log("Attempting emergency fallback with new utterance");
+        const emergencyUtterance = new SpeechSynthesisUtterance(text);
+        emergencyUtterance.volume = 1.0;
+        emergencyUtterance.rate = 1.0;
+        window.speechSynthesis.cancel(); // Clear any pending speech
+        setTimeout(() => {
+          window.speechSynthesis.speak(emergencyUtterance);
+        }, 100);
+      } catch (secondError) {
+        console.error("Emergency fallback failed:", secondError);
+      }
+      
       setIsSpeaking(false);
       setIsSpeechPlaying(false);
       speechSynthesisRef.current = null;
@@ -330,42 +536,188 @@ export default function Home() {
         }, 500);
       }
     }
-  };
+  }, [setIsSpeechPlaying, speechSynthesisRef, setSpeechQueue, setIsSpeaking, speechQueue]);
 
   // Actual speech processing function
-  const processSpeech = (text: string) => {
-    // Ensure we have clean state
-    if (speechSynthesisRef.current) {
+  const processSpeech = useCallback((text: string) => {
+    // Chrome SpeechSynthesis bug fixes
+    const fixChromeSpeedSynthesisBug = () => {
+      // Force cancel any ongoing speech
       try {
         window.speechSynthesis.cancel();
-      } catch {
-        console.warn("Error canceling previous speech:");
+      } catch (err) {
+        console.warn("Error canceling speech synthesis:", err);
       }
+      
+      // Force resume in case it's stuck in a paused state
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch (err) {
+        console.warn("Error resuming speech synthesis:", err);
+      }
+    };
+
+    // Ensure we have clean state
+    if (speechSynthesisRef.current) {
+      fixChromeSpeedSynthesisBug();
     }
 
     // Reset speech synthesis if it's stuck
     try {
       if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
+        fixChromeSpeedSynthesisBug();
+        
         // Small delay to ensure cancel takes effect
         setTimeout(() => {
           processSpeechCore(text);
         }, 100);
         return;
       }
-    } catch {
-      console.warn("Error checking speech synthesis state:");
+    } catch (err) {
+      console.warn("Error checking speech synthesis state:", err);
     }
     
     // Process immediately if not speaking/pending
     processSpeechCore(text);
-  };
+  }, [processSpeechCore]);
 
   // Initialize Speech Recognition
   useEffect(() => {
+    const cleanupFunctions: Array<() => void> = [];
+    
     // Pre-initialize voices to avoid delays later
     if ('speechSynthesis' in window) {
-      window.speechSynthesis.getVoices();
+      // Fix for Chrome/Safari SpeechSynthesis issues
+      const initSpeechSynthesis = () => {
+        // Force voice loading
+        let voices = window.speechSynthesis.getVoices();
+        console.log(`🔊 Initial voices loaded: ${voices.length}`);
+        
+        // Setup voice change listener for browsers that load voices asynchronously
+        const voicesChangedHandler = () => {
+          voices = window.speechSynthesis.getVoices();
+          console.log(`🔊 Voices loaded after change: ${voices.length}`);
+          
+          // Log available voices for debugging
+          if (voices.length > 0) {
+            console.log(`🔊 First 5 available voices: ${voices.slice(0, 5).map(v => `${v.name} (${v.lang})`).join(', ')}`);
+            
+            // Check if we have any African voices
+            const africanVoices = voices.filter(v => 
+              v.lang.includes('-NG') || 
+              v.lang.includes('-ZA') || 
+              v.lang.includes('-GH') || 
+              v.lang.includes('-KE') ||
+              v.name.toLowerCase().includes('africa')
+            );
+            
+            if (africanVoices.length > 0) {
+              console.log(`🔊 Found ${africanVoices.length} African voices: ${africanVoices.map(v => `${v.name} (${v.lang})`).join(', ')}`);
+            } else {
+              console.log(`🔊 No specific African voices found, will use fallbacks`);
+            }
+          }
+        };
+        
+        // Register for voice changes
+        window.speechSynthesis.onvoiceschanged = voicesChangedHandler;
+        
+        // Initial call to handle browsers that might have already loaded voices
+        voicesChangedHandler();
+        
+        // Test speech synthesis to make sure audio is working
+        const testAudio = () => {
+          try {
+            // Create a short test utterance that won't be noticeable to the user
+            const testUtterance = new SpeechSynthesisUtterance('.');
+            testUtterance.volume = 0.01; // Very quiet
+            testUtterance.rate = 1.5; // Fast
+            testUtterance.onend = () => console.log('🔊 Test speech completed successfully');
+            testUtterance.onerror = (e) => console.warn('🔊 Test speech failed:', e.error);
+            
+            // Cancel any existing speech first
+            window.speechSynthesis.cancel();
+            
+            // Speak the test utterance
+            setTimeout(() => {
+              window.speechSynthesis.speak(testUtterance);
+              console.log('🔊 Test speech initiated');
+            }, 500);
+          } catch (e) {
+            console.warn('🔊 Could not run test speech:', e);
+          }
+        };
+        
+        // Run test after a delay to ensure browser is ready
+        setTimeout(testAudio, 1000);
+        
+        // Periodically check and unstick the speech synthesis API
+        const keepAlive = () => {
+          // If it's speaking, reset the timer
+          if (window.speechSynthesis.speaking) {
+            console.log("Keeping speech synthesis alive during speech");
+            // Safari/Chrome bug: if paused, force resume
+            if (window.speechSynthesis.paused) {
+              window.speechSynthesis.resume();
+              console.log("Resumed paused speech synthesis");
+            }
+          }
+        };
+        
+        // Check every 5 seconds to keep speech synthesis working
+        const keepAliveInterval = setInterval(keepAlive, 5000);
+        
+        // Fix for page visibility changes in Chrome
+        const visibilityHandler = () => {
+          if (!document.hidden) {
+            console.log("Page visible again, checking speech synthesis state");
+            
+            if (window.speechSynthesis.paused) {
+              window.speechSynthesis.resume();
+              console.log("Resumed paused speech on visibility change");
+            }
+            
+            // If nothing is speaking but isSpeaking is true, try to recover
+            if (isSpeaking && !window.speechSynthesis.speaking) {
+              console.log("Speaking state mismatch, attempting recovery");
+              
+              // If there's an item in the queue, try processing it again
+              if (speechQueue.length > 0) {
+                console.log("Reprocessing speech queue after visibility change");
+                const currentText = speechQueue[0];
+                setSpeechQueue(prev => [...prev.slice(1), currentText]);
+              } else {
+                // Reset the speaking state since there's nothing to speak
+                setIsSpeaking(false);
+                setIsSpeechPlaying(false);
+              }
+            }
+          } else {
+            console.log("Page hidden, speech synthesis may pause");
+          }
+        };
+        
+        document.addEventListener('visibilitychange', visibilityHandler);
+        
+        // Return cleanup function
+        return () => {
+          clearInterval(keepAliveInterval);
+          document.removeEventListener('visibilitychange', visibilityHandler);
+          window.speechSynthesis.onvoiceschanged = null;
+          
+          // Cancel any pending speech when component unmounts
+          if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+          }
+        };
+      };
+      
+      // Initialize and store cleanup function
+      cleanupFunctions.push(initSpeechSynthesis());
+    } else {
+      console.warn("🔊 Speech Synthesis not supported by this browser");
     }
     
     // Make a test call to the API to warm it up
@@ -697,12 +1049,17 @@ export default function Home() {
         }
 
         setRecognition(recognizer);
-    } else {
-        console.warn("🎤 Speech Recognition not supported by this browser.");
-        // Optionally disable mic button here
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening, isSpeaking, isLoading]);
+    
+    // Return combined cleanup function
+    return () => {
+      cleanupFunctions.forEach(cleanup => {
+        if (typeof cleanup === 'function') {
+          cleanup();
+        }
+      });
+    };
+  }, []);
 
   // Clean up any lingering timeout and speech recognition on unmount
   useEffect(() => {
@@ -736,9 +1093,10 @@ export default function Home() {
       // Reset no-speech counter on unmount
       noSpeechCountRef.current = 0;
     };
-  }, [recognition]);
+  }, [recognition]); // Purposely not including other dependencies as they would cause unnecessary cleanup
 
-  const handleMicClick = async () => {
+  // Define handleMicClick with useCallback before using it in useEffect
+  const handleMicClick = useCallback(async () => {
     if (isListening) {
         // We're already listening, so stop
         console.log("⭐ Stopping listening via manual click");
@@ -960,7 +1318,9 @@ export default function Home() {
             alert("Could not start voice recognition. Please ensure microphone permission is granted.");
         }
     }
-  };
+  }, [isListening, lastTranscriptRef, recognition, inputValue, transcriptUpdatedRef, 
+      setIsListening, setMessages, setInputValue, setNoSpeechDetected,
+      isVoiceModeActive, speak, sessionId]); // Remove isLoading
 
   // Modify handleSubmit to potentially handle form submission via voice
   const handleSubmit = async (e: React.FormEvent | { type: 'submit', text?: string }) => {
@@ -1099,14 +1459,74 @@ export default function Home() {
 
   // Process the speech queue
   useEffect(() => {
-    if (speechQueue.length > 0 && !isSpeechPlaying && 'speechSynthesis' in window) {
+    if (speechQueue.length > 0 && !isSpeechPlaying) {
+      console.log(`🔊 Processing next item in speech queue (${speechQueue.length} items remaining)`);
       const nextText = speechQueue[0];
-      console.log(`🔊 Processing speech from queue: "${nextText.substring(0, 30)}${nextText.length > 30 ? '...' : ''}"`);
-      setSpeechQueue(prev => prev.slice(1)); // Remove the first item
+      
+      // Process the current item but keep it in the queue until it's done
+      // The actual removal happens in the onend or onerror handlers
       processSpeech(nextText);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speechQueue, isSpeechPlaying]);
+  }, [speechQueue, isSpeechPlaying, processSpeech]);
+  
+  // Add dedicated useEffect to monitor for and fix stuck speech states
+  useEffect(() => {
+    // This useEffect helps recover from cases where speech appears to be
+    // playing (isSpeaking === true) but nothing is actually happening
+    
+    if (!isSpeaking) return; // Only run when we think speech is happening
+    
+    // Setup a periodic check to verify speech is actually working
+    const checkInterval = setInterval(() => {
+      if (isSpeaking && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+        console.log("🔊 Detected stuck speech state - speech should be playing but isn't");
+        
+        // Get current speech synthesis state for debugging
+        console.log("🔊 Speech synthesis state:", {
+          speaking: window.speechSynthesis.speaking,
+          pending: window.speechSynthesis.pending,
+          paused: window.speechSynthesis.paused
+        });
+        
+        // Try to resume if paused
+        if (window.speechSynthesis.paused) {
+          try {
+            window.speechSynthesis.resume();
+            console.log("🔊 Resumed paused speech synthesis");
+            return; // Exit early if we successfully resumed
+          } catch (e) {
+            console.warn("🔊 Failed to resume:", e);
+          }
+        }
+        
+        // If we can't resume, reset the state and try the next item
+        console.log("🔊 Resetting speech state after detecting stuck state");
+        
+        // Reset state
+        setIsSpeaking(false);
+        setIsSpeechPlaying(false);
+        speechSynthesisRef.current = null;
+        
+        // Force the queue to process the next item (or retry this one)
+        if (speechQueue.length > 0) {
+          // Move the current item to the end if we want to retry
+          // or just process the next item if we want to skip
+          const shouldRetry = false; // Change to true if you want to retry failed items
+          
+          if (shouldRetry) {
+            const currentItem = speechQueue[0];
+            setSpeechQueue(prev => [...prev.slice(1), currentItem]);
+          } else {
+            setSpeechQueue(prev => prev.slice(1));
+          }
+        }
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [isSpeaking, speechQueue, processSpeech]);
 
   // Cleanup speech synthesis on unmount
   useEffect(() => {
@@ -1201,6 +1621,148 @@ export default function Home() {
     }, 100);
   };
 
+  // Add visibility change handler to resume speech when user comes back to the page
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // User has returned to the page - resume any paused speech
+        console.log("Page visible, checking speech synthesis state");
+        
+        if (window.speechSynthesis && window.speechSynthesis.paused) {
+          console.log("Resuming paused speech synthesis");
+          try {
+            window.speechSynthesis.resume();
+          } catch (e) {
+            console.warn("Error resuming speech on visibility change:", e);
+          }
+        }
+        
+        // If speech should be playing but isn't, try to recover
+        if (isSpeaking && (!window.speechSynthesis.speaking && !window.speechSynthesis.pending)) {
+          console.log("Speech appears to have been interrupted, processing queue");
+          
+          // Process the current queue again
+          if (speechQueue.length > 0) {
+            processSpeech(speechQueue[0]);
+          } else {
+            // Reset state if nothing to play
+            setIsSpeaking(false);
+            setIsSpeechPlaying(false);
+          }
+        }
+      }
+    };
+    
+    // Add event listener
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Clean up
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isSpeaking, speechQueue, processSpeech]);
+
+  // Initialize audio on first user interaction to fix iOS/macOS audio issues
+  const initAudioContext = useCallback(() => {
+    try {
+      console.log("Initializing audio context for speech playback");
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      
+      if (AudioContext) {
+        // Create a short silent audio context to unlock audio on iOS/Safari
+        const audioCtx = new AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        // Set to silent
+        gainNode.gain.value = 0.01;
+        oscillator.frequency.value = 440;
+        oscillator.type = 'sine';
+        
+        // Start and stop quickly
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.01);
+        
+        // Close after a short delay
+        setTimeout(() => {
+          if (audioCtx.state !== 'closed') {
+            audioCtx.close().catch(err => console.warn("Error closing audio context:", err));
+          }
+        }, 100);
+        
+        console.log("Audio context initialized successfully");
+      }
+    } catch (err) {
+      console.warn("Error initializing audio context:", err);
+    }
+  }, []);
+  
+  // Enhance handleMicClick to initialize audio
+  const enhancedHandleMicClick = useCallback(() => {
+    // Initialize audio on first click
+    initAudioContext();
+    
+    // Call the original handler
+    handleMicClick();
+  }, [handleMicClick, initAudioContext]);
+  
+  // Enhance speak function to ensure audio is working
+  const enhancedSpeak = useCallback((text: string, languageCode?: string) => {
+    // Initialize audio context to ensure audio works
+    initAudioContext();
+    
+    // Add a small delay to ensure audio is initialized
+    setTimeout(() => {
+      speak(text, languageCode);
+    }, 100);
+  }, [speak, initAudioContext]);
+  
+  // Replace speak with enhancedSpeak in relevant places
+  useEffect(() => {
+    if (isVoiceModeActive && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === "assistant") {
+        enhancedSpeak(lastMessage.content, lastMessage.language?.languageCode);
+      }
+    }
+  }, [messages, isVoiceModeActive, enhancedSpeak]);
+  
+  // Force browser to load audio capabilities on page load
+  useEffect(() => {
+    const unlockAudio = () => {
+      console.log("Unlocking audio on user interaction");
+      initAudioContext();
+      
+      // Also try to force speech synthesis initialization
+      if ('speechSynthesis' in window) {
+        const voices = window.speechSynthesis.getVoices();
+        console.log(`Preloaded ${voices.length} voices`);
+        
+        // Create and immediately cancel a silent utterance
+        const silentUtterance = new SpeechSynthesisUtterance('');
+        silentUtterance.volume = 0;
+        window.speechSynthesis.speak(silentUtterance);
+        window.speechSynthesis.cancel();
+      }
+      
+      // Remove listeners after first interaction
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+    
+    // Add listeners for user interaction
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio);
+    
+    return () => {
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+  }, [initAudioContext]);
+
   return (
     <div className="flex flex-col items-center w-full">
       {/* Intro Section */}
@@ -1241,7 +1803,7 @@ export default function Home() {
             isListening={isListening}
             isRateLimited={isRateLimited}
             rateLimitCountdown={rateLimitCountdown}
-            onMicClick={handleMicClick}
+            onMicClick={enhancedHandleMicClick}
             noSpeechDetected={noSpeechDetected}
           />
         )}
